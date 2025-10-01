@@ -16,7 +16,7 @@ def create_quotation_pdf(user_name, items_data, output_buffer):
                             topMargin=inch/2, bottomMargin=inch/2)
     styles = getSampleStyleSheet()
 
-    # Define Custom Styles (Same as before)
+    # Define Custom Styles 
     header_style = ParagraphStyle('Header', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=18, alignment=1, spaceAfter=0)
     subheader_style = ParagraphStyle('SubHeader', parent=styles['Normal'], fontName='Helvetica', fontSize=10, alignment=0, leading=12, spaceAfter=0)
     address_style = ParagraphStyle('Address', parent=styles['Normal'], fontName='Helvetica', fontSize=8, alignment=0, leading=10, spaceAfter=0)
@@ -86,18 +86,21 @@ def create_quotation_pdf(user_name, items_data, output_buffer):
     
     total_amount = 0
     for i, item in enumerate(items_data):
-        # Calculate Amount and Total
+        # Calculate Amount
         try:
-            amount = item['qty'] * item['rate']
+            # Ensure qty and rate are treated as numbers
+            qty = float(item.get('qty', 0))
+            rate = float(item.get('rate', 0))
+            amount = qty * rate
             total_amount += amount
         except (TypeError, ValueError):
-            amount = 0 # Handle cases where qty or rate are not numbers
+            amount = 0 # Fallback if conversion fails
 
         table_data.append([
             Paragraph(str(i+1), table_cell_style), 
             Paragraph(item['name'], table_cell_style), 
-            Paragraph(f"{item['qty']}", table_cell_right_style), 
-            Paragraph(f"{item['rate']}", table_cell_right_style), 
+            Paragraph(f"{qty:g}", table_cell_right_style), # :g removes trailing zeros if integer
+            Paragraph(f"{rate:,.2f}", table_cell_right_style), 
             Paragraph(f"{amount:,.2f}", table_cell_right_style)
         ])
 
@@ -147,17 +150,19 @@ def create_quotation_pdf(user_name, items_data, output_buffer):
     return output_buffer
 
 # --- Streamlit App Layout ---
+st.set_page_config(layout="centered")
 st.title("📄 Shree Balaji Interiors Quotation Generator")
 st.markdown("Enter customer details and line items to generate the PDF quotation.")
 
 # --- Session State for Dynamic Item Management ---
 if 'items' not in st.session_state:
-    # Initialize with one empty item
-    st.session_state.items = [{'name': '', 'qty': 0, 'rate': 0}]
+    # CRITICAL: This must be a LIST of DICTIONARIES.
+    # The fix ensures this is correctly initialized as a list.
+    st.session_state.items = [{'name': '', 'qty': 0.0, 'rate': 0.0}]
 
 def add_item():
     """Adds a new empty row to the items list."""
-    st.session_state.items.append({'name': '', 'qty': 0, 'rate': 0})
+    st.session_state.items.append({'name': '', 'qty': 0.0, 'rate': 0.0})
 
 def remove_item(index):
     """Removes an item row by index."""
@@ -170,27 +175,41 @@ user_name = st.text_input("Customer Name:", "Mr. Pavan kasat")
 st.subheader("Item Details")
 
 # Display and handle input for each item
-total_cost = 0
-for i, item in enumerate(st.session_state.items):
-    col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1.5, 2, 0.5])
-    
-    with col1:
-        item['name'] = st.text_input(f"Description {i+1}", item['name'], key=f"name_{i}", label_visibility="collapsed")
-    with col2:
-        # Using number_input for quantity
-        item['qty'] = st.number_input(f"Qty {i+1}", min_value=0.0, step=0.01, value=float(item.get('qty', 0)), key=f"qty_{i}", label_visibility="collapsed")
-    with col3:
-        # Using number_input for rate
-        item['rate'] = st.number_input(f"Rate {i+1}", min_value=0.0, step=1.0, value=float(item.get('rate', 0)), key=f"rate_{i}", label_visibility="collapsed")
-    
-    amount = item['qty'] * item['rate']
-    total_cost += amount
-    
-    with col4:
-        st.markdown(f"**Amount:** ₹{amount:,.2f}")
-    with col5:
-        if st.session_state.items and len(st.session_state.items) > 1:
-            st.button("❌", key=f"remove_{i}", on_click=remove_item, args=(i,))
+total_cost = 0.0
+placeholder = st.empty() # Placeholder for the dynamic input fields
+
+with placeholder.container():
+    st.markdown("---")
+    # Header Row for Inputs
+    col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([3, 1.5, 1.5, 2, 0.5])
+    col_h1.write("**Description**")
+    col_h2.write("**Qty / Sq. Ft.**")
+    col_h3.write("**Rate**")
+    col_h4.write("**Amount (₹)**")
+    col_h5.write("**Action**")
+    st.markdown("---")
+
+
+    # Main loop for items - **This is where the error occurred before**
+    for i, item in enumerate(st.session_state.items):
+        col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1.5, 2, 0.5])
+        
+        with col1:
+            # Use float() for value to prevent value mismatch errors if user cleared the field
+            item['name'] = st.text_input(f"Desc_{i}", item['name'], key=f"name_{i}", label_visibility="collapsed")
+        with col2:
+            item['qty'] = st.number_input(f"Qty_{i}", min_value=0.0, step=0.01, value=float(item.get('qty', 0.0)), key=f"qty_{i}", label_visibility="collapsed")
+        with col3:
+            item['rate'] = st.number_input(f"Rate_{i}", min_value=0.0, step=1.0, value=float(item.get('rate', 0.0)), key=f"rate_{i}", label_visibility="collapsed")
+        
+        amount = item['qty'] * item['rate']
+        total_cost += amount
+        
+        with col4:
+            st.markdown(f"**₹{amount:,.2f}**")
+        with col5:
+            if len(st.session_state.items) > 1:
+                st.button("❌", key=f"remove_{i}", on_click=remove_item, args=(i,))
 
 # Add Row Button
 st.button("➕ Add Item Row", on_click=add_item)
@@ -201,11 +220,11 @@ st.markdown(f"### Grand Total: ₹{total_cost:,.2f}")
 
 # --- PDF Generation and Download ---
 if st.button("Generate Quotation PDF"):
-    # Filter out empty rows before generating the PDF
-    valid_items = [item for item in st.session_state.items if item['name'] and (item['qty'] > 0 and item['rate'] > 0)]
+    # Filter out rows that are completely empty before generating
+    valid_items = [item for item in st.session_state.items if item['name'].strip() and (item['qty'] > 0 or item['rate'] > 0)]
     
     if not valid_items:
-        st.error("Please add at least one valid item with a description, quantity, and rate.")
+        st.error("Please add at least one valid item with a description and quantity/rate greater than zero.")
     else:
         # Use BytesIO to create the PDF in memory
         buffer = BytesIO()
@@ -220,4 +239,3 @@ if st.button("Generate Quotation PDF"):
             file_name=f"Quotation_{user_name.replace(' ', '_')}_{date.today().strftime('%Y%m%d')}.pdf",
             mime="application/pdf"
         )
-
